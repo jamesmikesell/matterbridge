@@ -3,6 +3,8 @@ import { useContext, useEffect, useState, useRef, memo, useCallback } from 'reac
 
 // @mui/material
 import IconButton from '@mui/material/IconButton';
+import Select, { SelectChangeEvent } from '@mui/material/Select';
+import MenuItem from '@mui/material/MenuItem';
 
 // @mui/icons-material
 import SettingsIcon from '@mui/icons-material/Settings';
@@ -13,6 +15,7 @@ import { Connecting } from './Connecting';
 import { debug } from '../App';
 import { ApiDevice, Cluster } from '../../../src/matterbridgeTypes';
 import { WsMessageApiResponse, WsMessageApiStateUpdate } from '../../../src/frontendTypes';
+import { DEFAULT_TEMPERATURE_DEVICE_CONVERSION_MODE, DEVICE_TEMPERATURE_CONVERSION_OPTIONS, TemperatureDeviceConversionMode } from '../../../src/temperatureConversion';
 import MbfTable, { MbfTableColumn } from './MbfTable';
 import { MbfWindow } from './MbfWindow';
 
@@ -124,6 +127,7 @@ function DevicesTable({ filter }: { filter: string }) {
   const [filteredDevices, setFilteredDevices] = useState(devices);
   const [clusters, setClusters] = useState<Cluster[]>([]);
   const [subEndpointsCount, setSubEndpointsCount] = useState(0);
+  const [temperatureDeviceConversions, setTemperatureDeviceConversions] = useState<Record<string, TemperatureDeviceConversionMode>>({});
 
   // Selected device for clusters view
   const [pluginName, setPluginName] = useState<string | null>(null);
@@ -165,11 +169,17 @@ function DevicesTable({ filter }: { filter: string }) {
       if (msg.method === 'refresh_required' && msg.response.changed === 'devices') {
         if (debug) console.log(`DevicesTable received refresh_required: changed=${msg.response.changed} and sending /api/devices request`);
         sendMessage({ id: uniqueId.current, sender: 'DevicesTable', method: '/api/devices', src: 'Frontend', dst: 'Matterbridge', params: {} });
+      } else if (msg.method === 'refresh_required' && msg.response.changed === 'settings') {
+        if (debug) console.log(`DevicesTable received refresh_required: changed=${msg.response.changed} and sending /api/settings request`);
+        sendMessage({ id: uniqueId.current, sender: 'DevicesTable', method: '/api/settings', src: 'Frontend', dst: 'Matterbridge', params: {} });
       } else if (msg.method === 'state_update' && msg.response) {
         updateDevices(msg);
       } else if (msg.method === '/api/devices') {
         if (debug) console.log(`DevicesTable received ${msg.response.length} devices:`, msg.response);
         setDevices(msg.response);
+      } else if (msg.method === '/api/settings') {
+        if (debug) console.log('DevicesTable received /api/settings:', msg.response);
+        setTemperatureDeviceConversions(msg.response?.matterbridgeInformation?.temperatureDeviceConversions ?? {});
       } else if (msg.method === '/api/clusters') {
         if (debug) console.log(`DevicesTable received ${msg.response.clusters.length} clusters for plugin ${msg.response.plugin}:`, msg.response);
         setClusters(msg.response.clusters);
@@ -238,6 +248,46 @@ function DevicesTable({ filter }: { filter: string }) {
     setDeviceName(row.name);
   };
 
+  const hasTemperatureReading = (device: ApiDevice): boolean => {
+    return device.cluster.includes('Temperature:') || device.cluster.includes('Heat to:') || device.cluster.includes('Cool to:');
+  };
+
+  const handleTemperatureConversionChange = (event: SelectChangeEvent, device: ApiDevice) => {
+    event.stopPropagation();
+    if (!device.uniqueId) return;
+    const newValue = event.target.value as TemperatureDeviceConversionMode;
+    setTemperatureDeviceConversions((prev) => ({ ...prev, [device.uniqueId]: newValue }));
+    sendMessage({
+      id: uniqueId.current,
+      sender: 'DevicesTable',
+      method: '/api/config',
+      src: 'Frontend',
+      dst: 'Matterbridge',
+      params: { name: 'setdevicetemperatureconversion', uniqueId: device.uniqueId, value: newValue },
+    });
+  };
+
+  const devicesColumnsWithTemp: MbfTableColumn<ApiDevice>[] = [
+    ...devicesColumns,
+    {
+      label: 'Temp conversion',
+      id: 'temperatureConversion',
+      render: (_value, _rowKey, device) => {
+        if (!hasTemperatureReading(device)) return null;
+        const value = temperatureDeviceConversions[device.uniqueId] ?? DEFAULT_TEMPERATURE_DEVICE_CONVERSION_MODE;
+        return (
+          <Select size='small' value={value} onChange={(event) => handleTemperatureConversionChange(event, device)} onClick={(event) => event.stopPropagation()} style={{ height: '30px', minWidth: '220px' }}>
+            {DEVICE_TEMPERATURE_CONVERSION_OPTIONS.map((option) => (
+              <MenuItem key={option.value} value={option.value}>
+                {option.label}
+              </MenuItem>
+            ))}
+          </Select>
+        );
+      },
+    },
+  ];
+
   if (debug) console.log('DevicesTable rendering...');
   if (!online) {
     return <Connecting />;
@@ -246,7 +296,7 @@ function DevicesTable({ filter }: { filter: string }) {
     <div style={{ display: 'flex', flexDirection: 'column', margin: '0px', padding: '0px', gap: '20px', width: '100%', overflow: 'hidden' }}>
       {/* Devices Table */}
       <MbfWindow style={{ margin: '0px', padding: '0px', gap: '0px', width: '100%', maxHeight: `${pluginName && endpoint ? '30%' : '100%'}`, flex: '1 1 auto', overflow: 'hidden' }}>
-        <MbfTable name='Registered devices' getRowKey={getDeviceRowKey} onRowClick={handleDeviceClick} rows={filteredDevices} columns={devicesColumns} footerLeft={`Total devices: ${filteredDevices.length.toString()}`} />
+        <MbfTable name='Registered devices' getRowKey={getDeviceRowKey} onRowClick={handleDeviceClick} rows={filteredDevices} columns={devicesColumnsWithTemp} footerLeft={`Total devices: ${filteredDevices.length.toString()}`} />
       </MbfWindow>
 
       {/* Clusters Table */}

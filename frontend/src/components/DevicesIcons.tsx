@@ -139,6 +139,10 @@ interface DeviceProps {
 function Device({ device, endpoint, id, deviceType, clusters }: DeviceProps): React.JSX.Element {
   const airQualityLookup = ['Unknown', 'Good', 'Fair', 'Moderate', 'Poor', 'VeryPoor', 'Ext.Poor'];
   let details = '';
+  const getTemperatureUnit = (attributeName: string): string => {
+    const cluster = clusters.find((item) => (item.clusterName === 'Thermostat' || item.clusterName === 'TemperatureMeasurement') && item.attributeName === attributeName);
+    return cluster?.attributeUnit ?? '°C';
+  };
 
   if (debug) console.log(`Device "${device.name}" endpoint "${endpoint}" id "${id}" deviceType "0x${deviceType.toString(16).padStart(4, '0')}" clusters (${clusters?.length})`);
 
@@ -163,8 +167,14 @@ function Device({ device, endpoint, id, deviceType, clusters }: DeviceProps): Re
     clusters.filter((cluster) => cluster.clusterName === 'WindowCovering' && cluster.attributeName === 'currentPositionLiftPercent100ths').map((cluster) => (details = `Position ${(cluster.attributeLocalValue as number) / 100}%`));
 
   // Thermostat
-  deviceType === 0x0301 && clusters.filter((cluster) => cluster.clusterName === 'Thermostat' && cluster.attributeName === 'occupiedHeatingSetpoint').map((cluster) => (details = `Heat ${(cluster.attributeLocalValue as number) / 100}°C `));
-  deviceType === 0x0301 && clusters.filter((cluster) => cluster.clusterName === 'Thermostat' && cluster.attributeName === 'occupiedCoolingSetpoint').map((cluster) => (details = details + `Cool ${(cluster.attributeLocalValue as number) / 100}°C`));
+  deviceType === 0x0301 &&
+    clusters
+      .filter((cluster) => cluster.clusterName === 'Thermostat' && cluster.attributeName === 'occupiedHeatingSetpoint')
+      .map((cluster) => (details = `Heat ${(cluster.attributeLocalValue as number) / 100}${getTemperatureUnit('occupiedHeatingSetpoint')} `));
+  deviceType === 0x0301 &&
+    clusters
+      .filter((cluster) => cluster.clusterName === 'Thermostat' && cluster.attributeName === 'occupiedCoolingSetpoint')
+      .map((cluster) => (details = details + `Cool ${(cluster.attributeLocalValue as number) / 100}${getTemperatureUnit('occupiedCoolingSetpoint')}`));
 
   // SmokeCoAlarm
   deviceType === 0x0076 && clusters.filter((cluster) => cluster.clusterName === 'SmokeCoAlarm' && cluster.attributeName === 'coState').map((cluster) => (details = `${cluster.attributeLocalValue === 0 ? 'No CO detected' : 'CO alarm!'}`));
@@ -254,7 +264,7 @@ function Device({ device, endpoint, id, deviceType, clusters }: DeviceProps): Re
         <Render icon={<BlindsIcon/>} cluster={cluster} value={cluster.attributeLocalValue as number / 100} unit='%' />
       ))}
       {deviceType===0x0301 && clusters.filter(cluster => cluster.clusterName === 'Thermostat' && cluster.attributeName === 'localTemperature').map(cluster => (
-        <Render icon={<Icon path={mdiThermostat} size='40px' color='var(--primary-color)' />} cluster={cluster} value={(cluster.attributeLocalValue as number ?? 0)/100} unit='°C' />
+        <Render icon={<Icon path={mdiThermostat} size='40px' color='var(--primary-color)' />} cluster={cluster} value={(cluster.attributeLocalValue as number ?? 0)/100} unit={cluster.attributeUnit ?? '°C'} />
       ))}
       {deviceType===0x000a && clusters.filter(cluster => cluster.clusterName === 'DoorLock' && cluster.attributeName === 'lockState').map(cluster => (
         <Render icon={cluster.attributeValue==='1' ? <LockIcon/> : <LockOpenIcon/>} cluster={cluster} value={cluster.attributeValue==='1' ? 'Locked' : 'Unlocked'} />
@@ -280,7 +290,7 @@ function Device({ device, endpoint, id, deviceType, clusters }: DeviceProps): Re
       ))}
       {/* Air conditioner */}
       {deviceType===0x0072 && clusters.filter(cluster => cluster.clusterName === 'Thermostat' && cluster.attributeName === 'localTemperature').map(cluster => (
-        <Render icon={<HvacIcon/>} cluster={cluster} value={(cluster.attributeLocalValue as number ?? 0)/100} unit='°C'/>
+        <Render icon={<HvacIcon/>} cluster={cluster} value={(cluster.attributeLocalValue as number ?? 0)/100} unit={cluster.attributeUnit ?? '°C'}/>
       ))}
       {/* Water leak detector */}
       {deviceType===0x0043 && clusters.filter(cluster => cluster.clusterName === 'BooleanState' && cluster.attributeName === 'stateValue').map(cluster => (
@@ -342,7 +352,7 @@ function Device({ device, endpoint, id, deviceType, clusters }: DeviceProps): Re
         <Render icon={<Icon path={mdiAirPurifier} size='40px' color='var(--primary-color)' />} cluster={cluster} value={airQualityLookup[cluster.attributeLocalValue as number ?? 0]}/>
       ))}
       {deviceType===0x0302 && clusters.filter(cluster => cluster.clusterName === 'TemperatureMeasurement' && cluster.attributeName === 'measuredValue').map(cluster => (
-        <Render icon={<ThermostatIcon/>} cluster={cluster} value={cluster.attributeLocalValue as number/100} unit='°C' />
+        <Render icon={<ThermostatIcon/>} cluster={cluster} value={cluster.attributeLocalValue as number/100} unit={cluster.attributeUnit ?? '°C'} />
       ))}
       {deviceType===0x0307 && clusters.filter(cluster => cluster.clusterName === 'RelativeHumidityMeasurement' && cluster.attributeName === 'measuredValue').map(cluster => (
         <Render icon={<Icon path={mdiWaterPercent} size='40px' color='var(--primary-color)' />} cluster={cluster} value={cluster.attributeLocalValue as number/100} unit='%' />

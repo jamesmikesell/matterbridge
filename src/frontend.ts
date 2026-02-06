@@ -61,6 +61,7 @@ import { cliEmitter, lastOsCpuUsage, lastProcessCpuUsage } from './cliEmitter.js
 import { generateHistoryPage } from './cliHistory.js';
 import { BroadcastServer } from './broadcastServer.js';
 import { WorkerMessage } from './broadcastServerTypes.js';
+import { convertTemperatureValue, DEFAULT_TEMPERATURE_DEVICE_CONVERSION_MODE, isTemperatureAttribute, resolveTemperatureTargetUnit, TemperatureDeviceConversionMode, toTemperatureUnitSymbol } from './temperatureConversion.js';
 
 /**
  * Represents the Frontend events.
@@ -1120,6 +1121,8 @@ export class Frontend extends EventEmitter<FrontendEvents> {
       bridgeMode: this.matterbridge.bridgeMode,
       restartMode: this.matterbridge.restartMode,
       virtualMode: this.matterbridge.virtualMode,
+      temperatureConversion: this.matterbridge.temperatureConversion,
+      temperatureDeviceConversions: this.matterbridge.temperatureDeviceConversions,
       profile: this.matterbridge.profile,
       readOnly: this.matterbridge.readOnly,
       shellyBoard: this.matterbridge.shellyBoard,
@@ -1218,6 +1221,36 @@ export class Frontend extends EventEmitter<FrontendEvents> {
     }
   }
 
+  private getDeviceTemperatureConversionMode(uniqueId: string): TemperatureDeviceConversionMode {
+    return this.matterbridge.temperatureDeviceConversions[uniqueId] ?? DEFAULT_TEMPERATURE_DEVICE_CONVERSION_MODE;
+  }
+
+  private getThermostatSourceUnit(endpoint: MatterbridgeEndpoint): 'C' | 'F' | undefined {
+    const displayMode = getAttribute(endpoint, 'thermostatUserInterfaceConfiguration', 'temperatureDisplayMode');
+    if (displayMode === 0) return 'C';
+    if (displayMode === 1) return 'F';
+    return undefined;
+  }
+
+  private convertTemperatureAttribute(
+    endpoint: MatterbridgeEndpoint,
+    clusterName: string,
+    value: number,
+    conversionUniqueId?: string,
+  ): {
+    value: number;
+    unitSymbol: string;
+  } {
+    const defaultSourceUnit = clusterName === 'temperatureMeasurement' ? 'C' : (this.getThermostatSourceUnit(endpoint) ?? 'C');
+    const deviceMode = this.getDeviceTemperatureConversionMode(conversionUniqueId ?? endpoint.uniqueId ?? '');
+    const targetUnit = resolveTemperatureTargetUnit(this.matterbridge.temperatureConversion, deviceMode);
+    const sourceUnit = defaultSourceUnit;
+    const converted = convertTemperatureValue(value / 100, sourceUnit, targetUnit);
+    const convertedCenti = Math.round(converted.value * 100);
+    const outputUnit = converted.unit ?? sourceUnit;
+    return { value: convertedCenti, unitSymbol: toTemperatureUnitSymbol(outputUnit) };
+  }
+
   /**
    * Retrieves the cluster text description from a given device.
    * The output is a string with the attributes description of the cluster servers in the device to show in the frontend.
@@ -1260,9 +1293,18 @@ export class Frontend extends EventEmitter<FrontendEvents> {
       if (clusterName === 'switch' && attributeName === 'currentPosition') attributes += `Position: ${attributeValue} `;
       if (clusterName === 'windowCovering' && attributeName === 'currentPositionLiftPercent100ths' && isValidNumber(attributeValue, 0, 10000)) attributes += `Cover position: ${attributeValue / 100}% `;
       if (clusterName === 'doorLock' && attributeName === 'lockState') attributes += `State: ${attributeValue === 1 ? 'Locked' : 'Not locked'} `;
-      if (clusterName === 'thermostat' && attributeName === 'localTemperature' && isValidNumber(attributeValue)) attributes += `Temperature: ${attributeValue / 100}°C `;
-      if (clusterName === 'thermostat' && attributeName === 'occupiedHeatingSetpoint' && isValidNumber(attributeValue)) attributes += `Heat to: ${attributeValue / 100}°C `;
-      if (clusterName === 'thermostat' && attributeName === 'occupiedCoolingSetpoint' && isValidNumber(attributeValue)) attributes += `Cool to: ${attributeValue / 100}°C `;
+      if (clusterName === 'thermostat' && attributeName === 'localTemperature' && isValidNumber(attributeValue)) {
+        const converted = this.convertTemperatureAttribute(device, clusterName, attributeValue);
+        attributes += `Temperature: ${converted.value / 100}${converted.unitSymbol || '°C'} `;
+      }
+      if (clusterName === 'thermostat' && attributeName === 'occupiedHeatingSetpoint' && isValidNumber(attributeValue)) {
+        const converted = this.convertTemperatureAttribute(device, clusterName, attributeValue);
+        attributes += `Heat to: ${converted.value / 100}${converted.unitSymbol || '°C'} `;
+      }
+      if (clusterName === 'thermostat' && attributeName === 'occupiedCoolingSetpoint' && isValidNumber(attributeValue)) {
+        const converted = this.convertTemperatureAttribute(device, clusterName, attributeValue);
+        attributes += `Cool to: ${converted.value / 100}${converted.unitSymbol || '°C'} `;
+      }
 
       const modeClusters = ['modeSelect', 'rvcRunMode', 'rvcCleanMode', 'laundryWasherMode', 'ovenMode', 'microwaveOvenMode'];
       if (modeClusters.includes(clusterName) && attributeName === 'supportedModes') {
@@ -1306,7 +1348,10 @@ export class Frontend extends EventEmitter<FrontendEvents> {
       if (clusterName === 'pm25ConcentrationMeasurement' && attributeName === 'measuredValue') attributes += `Pm2.5: ${attributeValue} `;
       if (clusterName === 'pm10ConcentrationMeasurement' && attributeName === 'measuredValue') attributes += `Pm10: ${attributeValue} `;
       if (clusterName === 'formaldehydeConcentrationMeasurement' && attributeName === 'measuredValue') attributes += `CH₂O: ${attributeValue} `;
-      if (clusterName === 'temperatureMeasurement' && attributeName === 'measuredValue' && isValidNumber(attributeValue)) attributes += `Temperature: ${attributeValue / 100}°C `;
+      if (clusterName === 'temperatureMeasurement' && attributeName === 'measuredValue' && isValidNumber(attributeValue)) {
+        const converted = this.convertTemperatureAttribute(device, clusterName, attributeValue);
+        attributes += `Temperature: ${converted.value / 100}${converted.unitSymbol || '°C'} `;
+      }
       if (clusterName === 'relativeHumidityMeasurement' && attributeName === 'measuredValue' && isValidNumber(attributeValue)) attributes += `Humidity: ${attributeValue / 100}% `;
       if (clusterName === 'pressureMeasurement' && attributeName === 'measuredValue') attributes += `Pressure: ${attributeValue} `;
       if (clusterName === 'flowMeasurement' && attributeName === 'measuredValue') attributes += `Flow: ${attributeValue} `;
@@ -1420,6 +1465,13 @@ export class Frontend extends EventEmitter<FrontendEvents> {
     endpoint.forEachAttribute((clusterName, clusterId, attributeName, attributeId, attributeValue) => {
       if (typeof attributeValue === 'undefined' || attributeValue === undefined) return;
       if (clusterName === 'EveHistory' && ['configDataGet', 'configDataSet', 'historyStatus', 'historyEntries', 'historyRequest', 'historySetTime', 'rLoc'].includes(attributeName)) return;
+      let outputValue = attributeValue;
+      let outputUnit = '';
+      if (isTemperatureAttribute(clusterName, attributeName) && isValidNumber(attributeValue)) {
+        const converted = this.convertTemperatureAttribute(endpoint, clusterName, attributeValue);
+        outputValue = converted.value;
+        outputUnit = converted.unitSymbol;
+      }
       // console.log(
       //   `${idn}${endpoint.deviceName}${rs}${nf} => Cluster: ${CYAN}${clusterName} (0x${clusterId.toString(16).padStart(2, '0')})${nf} Attribute: ${CYAN}${attributeName} (0x${attributeId.toString(16).padStart(2, '0')})${nf} Value: ${YELLOW}${typeof attributeValue === 'object' ? stringify(attributeValue as object) : attributeValue}${nf}`,
       // );
@@ -1432,8 +1484,9 @@ export class Frontend extends EventEmitter<FrontendEvents> {
         clusterId: '0x' + clusterId.toString(16).padStart(2, '0'),
         attributeName,
         attributeId: '0x' + attributeId.toString(16).padStart(2, '0'),
-        attributeValue: typeof attributeValue === 'object' ? stringify(attributeValue as object) : attributeValue.toString(),
-        attributeLocalValue: attributeValue,
+        attributeValue: typeof outputValue === 'object' ? stringify(outputValue as object) : outputValue.toString(),
+        attributeLocalValue: outputValue,
+        attributeUnit: outputUnit || undefined,
       });
     });
 
@@ -1459,6 +1512,13 @@ export class Frontend extends EventEmitter<FrontendEvents> {
       childEndpoint.forEachAttribute((clusterName, clusterId, attributeName, attributeId, attributeValue) => {
         if (typeof attributeValue === 'undefined' || attributeValue === undefined) return;
         if (clusterName === 'EveHistory' && ['configDataGet', 'configDataSet', 'historyStatus', 'historyEntries', 'historyRequest', 'historySetTime', 'rLoc'].includes(attributeName)) return;
+        let outputValue = attributeValue;
+        let outputUnit = '';
+        if (isTemperatureAttribute(clusterName, attributeName) && isValidNumber(attributeValue)) {
+          const converted = this.convertTemperatureAttribute(childEndpoint as MatterbridgeEndpoint, clusterName, attributeValue, endpoint.uniqueId);
+          outputValue = converted.value;
+          outputUnit = converted.unitSymbol;
+        }
         // console.log(
         //   `${idn}${childEndpoint.deviceName}${rs}${nf} => Cluster: ${CYAN}${clusterName} (0x${clusterId.toString(16).padStart(2, '0')})${nf} Attribute: ${CYAN}${attributeName} (0x${attributeId.toString(16).padStart(2, '0')})${nf} Value: ${YELLOW}${typeof attributeValue === 'object' ? stringify(attributeValue as object) : attributeValue}${nf}`,
         // );
@@ -1471,8 +1531,9 @@ export class Frontend extends EventEmitter<FrontendEvents> {
           clusterId: '0x' + clusterId.toString(16).padStart(2, '0'),
           attributeName,
           attributeId: '0x' + attributeId.toString(16).padStart(2, '0'),
-          attributeValue: typeof attributeValue === 'object' ? stringify(attributeValue as object) : attributeValue.toString(),
-          attributeLocalValue: attributeValue,
+          attributeValue: typeof outputValue === 'object' ? stringify(outputValue as object) : outputValue.toString(),
+          attributeLocalValue: outputValue,
+          attributeUnit: outputUnit || undefined,
         });
       });
     });
@@ -2141,6 +2202,30 @@ export class Frontend extends EventEmitter<FrontendEvents> {
             }
             sendResponse({ id: data.id, method: data.method, src: 'Matterbridge', dst: data.src, success: true });
             break;
+          case 'settemperatureconversion':
+            if (isValidString(data.params.value, 1) && ['none', 'celsius', 'fahrenheit'].includes(data.params.value)) {
+              this.matterbridge.temperatureConversion = data.params.value as 'none' | 'celsius' | 'fahrenheit';
+              this.log.debug(`Set matterbridge temperature conversion to ${CYAN}${data.params.value}${db}`);
+              await this.matterbridge.nodeContext?.set<string>('temperatureconversion', data.params.value);
+              this.wssSendRefreshRequired('settings');
+              this.wssSendRefreshRequired('devices');
+              sendResponse({ id: data.id, method: data.method, src: 'Matterbridge', dst: data.src, success: true });
+              break;
+            }
+            sendResponse({ id: data.id, method: data.method, src: 'Matterbridge', dst: data.src, error: `Invalid value for ${data.params.name} in /api/config` });
+            break;
+          case 'setdevicetemperatureconversion':
+            if (isValidString(data.params.uniqueId, 1) && isValidString(data.params.value, 1) && ['follow_system', 'none', 'force_celsius', 'force_fahrenheit'].includes(data.params.value)) {
+              this.matterbridge.temperatureDeviceConversions[data.params.uniqueId] = data.params.value as TemperatureDeviceConversionMode;
+              this.log.debug(`Set temperature conversion override for ${CYAN}${data.params.uniqueId}${db} to ${CYAN}${data.params.value}${db}`);
+              await this.matterbridge.nodeContext?.set<Record<string, TemperatureDeviceConversionMode>>('temperaturedeviceconversions', this.matterbridge.temperatureDeviceConversions);
+              this.wssSendRefreshRequired('settings');
+              this.wssSendRefreshRequired('devices');
+              sendResponse({ id: data.id, method: data.method, src: 'Matterbridge', dst: data.src, success: true });
+              break;
+            }
+            sendResponse({ id: data.id, method: data.method, src: 'Matterbridge', dst: data.src, error: `Invalid value for ${data.params.name} in /api/config` });
+            break;
           default:
             this.log.warn(`Unknown parameter ${data.params.name} in /api/config`);
             sendResponse({ id: data.id, method: data.method, src: 'Matterbridge', dst: data.src, error: `Unknown parameter ${data.params.name} in /api/config` });
@@ -2455,8 +2540,15 @@ export class Frontend extends EventEmitter<FrontendEvents> {
   wssSendAttributeChangedMessage(plugin: string, serialNumber: string, uniqueId: string, number: EndpointNumber, id: string, cluster: string, attribute: string, value: number | string | boolean | null) {
     if (!this.listening || this.webSocketServer?.clients.size === 0) return;
     this.log.debug('Sending an attribute update message to all connected clients');
+    let outputValue = value;
+    if (isTemperatureAttribute(cluster, attribute) && isValidNumber(value)) {
+      const endpoint = this.matterbridge.devices.array().find((device) => device.uniqueId === uniqueId);
+      if (endpoint) {
+        outputValue = this.convertTemperatureAttribute(endpoint, cluster.toLowerCase(), value).value;
+      }
+    }
     // Send the message to all connected clients
-    this.wssBroadcastMessage({ id: 0, src: 'Matterbridge', dst: 'Frontend', method: 'state_update', success: true, response: { plugin, serialNumber, uniqueId, number, id, cluster, attribute, value } });
+    this.wssBroadcastMessage({ id: 0, src: 'Matterbridge', dst: 'Frontend', method: 'state_update', success: true, response: { plugin, serialNumber, uniqueId, number, id, cluster, attribute, value: outputValue } });
   }
 
   /**

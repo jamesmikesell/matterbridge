@@ -37,6 +37,7 @@ import type { Matterbridge } from './matterbridge.js';
 import type { MatterbridgePlatform } from './matterbridgePlatform.js';
 import type { PlatformConfig, PlatformSchema } from './matterbridgePlatformTypes.js';
 import type { MatterbridgeEndpoint } from './matterbridgeEndpoint.js';
+import type { TemperatureConversionTarget, TemperatureDeviceConversionMode } from './temperatureConversion.js';
 
 // Default colors
 export const plg = '\u001B[38;5;33m';
@@ -180,6 +181,8 @@ export interface MatterbridgeInformation {
   bridgeMode: string;
   restartMode: string;
   virtualMode: 'disabled' | 'outlet' | 'light' | 'switch' | 'mounted_switch';
+  temperatureConversion: TemperatureConversionTarget;
+  temperatureDeviceConversions: Record<string, TemperatureDeviceConversionMode>;
   profile: string | undefined;
   readOnly: boolean;
   shellyBoard: boolean;
@@ -310,4 +313,5 @@ export interface Cluster {
   attributeId: string;
   attributeValue: string;
   attributeLocalValue: unknown;
+  attributeUnit?: string;
 }

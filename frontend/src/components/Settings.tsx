@@ -20,6 +20,7 @@ import { NetworkConfigDialog } from './NetworkConfigDialog';
 import { ChangePasswordDialog } from './ChangePasswordDialog';
 import { WsMessageApiResponse } from '../../../src/frontendTypes';
 import { MatterbridgeInformation, SystemInformation } from '../../../src/matterbridgeTypes';
+import { SYSTEM_TEMPERATURE_CONVERSION_OPTIONS, TemperatureConversionTarget } from '../../../src/temperatureConversion';
 import { MbfWindow, MbfWindowContent, MbfWindowHeader, MbfWindowHeaderText } from './MbfWindow';
 import { MbfPage } from './MbfPage';
 import { createDebouncer } from '../utils/createDebouncer';
@@ -97,6 +98,7 @@ function MatterbridgeSettings({ matterbridgeInfo, systemInfo }: { matterbridgeIn
   const [homePagePlugins, setHomePagePlugins] = useState(localStorage.getItem(MbfLsk.homePagePlugins) === 'false' ? false : true); // default true
   const [homePageMode, setHomePageMode] = useState(localStorage.getItem(MbfLsk.homePageMode) ?? 'devices'); // default devices
   const [virtualMode, setVirtualMode] = useState(localStorage.getItem(MbfLsk.virtualMode) ?? 'outlet'); // default outlet
+  const [temperatureConversion, setTemperatureConversion] = useState<TemperatureConversionTarget>('none');
 
   // Refs
   const uniqueId = useRef(getUniqueId());
@@ -124,6 +126,7 @@ function MatterbridgeSettings({ matterbridgeInfo, systemInfo }: { matterbridgeIn
     setSelectedMbLoggerLevel(matterbridgeInfo.loggerLevel.charAt(0).toUpperCase() + matterbridgeInfo.loggerLevel.slice(1));
     setLogOnFileMb(matterbridgeInfo.fileLogger);
     setVirtualMode(matterbridgeInfo.virtualMode);
+    setTemperatureConversion(matterbridgeInfo.temperatureConversion);
   }, [matterbridgeInfo]);
 
   // Retrieve the saved theme value from localStorage
@@ -189,6 +192,13 @@ function MatterbridgeSettings({ matterbridgeInfo, systemInfo }: { matterbridgeIn
     sendMessage({ id: uniqueId.current, sender: 'Settings', method: '/api/config', src: 'Frontend', dst: 'Matterbridge', params: { name: 'setvirtualmode', value: newValue } });
   };
 
+  const handleChangeTemperatureConversion = (event: SelectChangeEvent) => {
+    const newValue = event.target.value as TemperatureConversionTarget;
+    if (debug) console.log('handleChangeTemperatureConversion called with value:', newValue);
+    setTemperatureConversion(newValue);
+    sendMessage({ id: uniqueId.current, sender: 'Settings', method: '/api/config', src: 'Frontend', dst: 'Matterbridge', params: { name: 'settemperatureconversion', value: newValue } });
+  };
+
   if (!matterbridgeInfo || !systemInfo) return null;
   return (
     <MbfWindow style={{ flex: `1 1 ${widthPx}px` }}>
@@ -238,7 +248,7 @@ function MatterbridgeSettings({ matterbridgeInfo, systemInfo }: { matterbridgeIn
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginTop: '5px' }}>
           <FormLabel style={{ padding: '0px', margin: '0px' }} id='frontend-home-plugin-label'>
-            Home page plugins:
+            Home page pluginsz:
           </FormLabel>
           <Checkbox checked={homePagePlugins} onChange={handleChangeHomePagePlugins} name='showPlugins' />
         </div>
@@ -261,6 +271,18 @@ function MatterbridgeSettings({ matterbridgeInfo, systemInfo }: { matterbridgeIn
             <MenuItem value='light'>Light</MenuItem>
             <MenuItem value='switch'>Switch</MenuItem>
             <MenuItem value='mounted_switch'>Mounted Switch</MenuItem>
+          </Select>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginTop: '10px' }}>
+          <FormLabel style={{ padding: '0px', margin: '0px' }} id='frontend-temperature-conversion-label'>
+            Convert temps to:
+          </FormLabel>
+          <Select style={{ height: '30px' }} labelId='frontend-temperature-conversion-label' id='frontend-temperature-conversion' value={temperatureConversion} onChange={handleChangeTemperatureConversion}>
+            {SYSTEM_TEMPERATURE_CONVERSION_OPTIONS.map((option) => (
+              <MenuItem key={option.value} value={option.value}>
+                {option.label}
+              </MenuItem>
+            ))}
           </Select>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginTop: '20px' }}>

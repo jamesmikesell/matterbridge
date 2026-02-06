@@ -73,6 +73,7 @@ import { addVirtualDevice, addVirtualDevices } from './helpers.js';
 import { BroadcastServer } from './broadcastServer.js';
 import { WorkerMessage } from './broadcastServerTypes.js';
 import { PlatformMatterbridge } from './matterbridgePlatformTypes.js';
+import { DEFAULT_TEMPERATURE_CONVERSION_TARGET, TemperatureConversionTarget, TemperatureDeviceConversionMode } from './temperatureConversion.js';
 
 /**
  * Represents the Matterbridge events.
@@ -152,6 +153,10 @@ export class Matterbridge extends EventEmitter<MatterbridgeEvents> {
   public restartMode: 'service' | 'docker' | '' = '';
   /** It indicates whether virtual mode is enabled and its type. The virtual mode control the creation of "Update matterbridge" and "Restart matterbridge" endpoints. */
   public virtualMode: 'disabled' | 'outlet' | 'light' | 'switch' | 'mounted_switch' = 'outlet';
+  /** System-level temperature conversion behavior for frontend-relayed values. */
+  public temperatureConversion: TemperatureConversionTarget = DEFAULT_TEMPERATURE_CONVERSION_TARGET;
+  /** Per-device temperature conversion override, keyed by device uniqueId. */
+  public temperatureDeviceConversions: Record<string, TemperatureDeviceConversionMode> = {};
   /** It indicates the Matterbridge profile in use. */
   public readonly profile = getParameter('profile');
 
@@ -755,6 +760,15 @@ export class Matterbridge extends EventEmitter<MatterbridgeEvents> {
       this.virtualMode = (await this.nodeContext.get<string>('virtualmode', 'outlet')) as 'disabled' | 'outlet' | 'light' | 'switch' | 'mounted_switch';
     }
     this.log.debug(`Virtual mode ${this.virtualMode}.`);
+
+    // Initialize temperature conversion settings
+    this.temperatureConversion = (await this.nodeContext.get<TemperatureConversionTarget>('temperatureconversion', DEFAULT_TEMPERATURE_CONVERSION_TARGET)) ?? DEFAULT_TEMPERATURE_CONVERSION_TARGET;
+    if (!['none', 'celsius', 'fahrenheit'].includes(this.temperatureConversion)) {
+      this.temperatureConversion = DEFAULT_TEMPERATURE_CONVERSION_TARGET;
+      await this.nodeContext.set<TemperatureConversionTarget>('temperatureconversion', this.temperatureConversion);
+    }
+    this.temperatureDeviceConversions = (await this.nodeContext.get<Record<string, TemperatureDeviceConversionMode>>('temperaturedeviceconversions', {})) ?? {};
+    this.log.debug(`Temperature conversion: ${this.temperatureConversion}. Device overrides: ${Object.keys(this.temperatureDeviceConversions).length}.`);
 
     // Initialize PluginManager
     this.plugins.logLevel = this.log.logLevel;

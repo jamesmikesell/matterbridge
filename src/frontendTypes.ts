@@ -414,6 +414,7 @@ export interface WsMessageApiConfigRequest extends WsMessageBaseApiRequest {
   params: {
     name: string;
     value: string | boolean;
+    uniqueId?: string;
   };
 }
 export interface WsMessageApiConfigResponse extends WsMessageSuccessApiResponse {
