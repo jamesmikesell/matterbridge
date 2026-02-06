@@ -7,9 +7,9 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Install git to clone the repositories
 RUN apt-get update && apt-get install -y --no-install-recommends git 
 
+COPY ../ /matterbridge
 WORKDIR /matterbridge
-RUN GIT_SSL_NO_VERIFY=true git clone --depth 1 --single-branch --no-tags -b dev https://github.com/Luligu/matterbridge.git . && \
-  SHA7=$(git rev-parse --short=7 HEAD) && \
+RUN SHA7=$(git rev-parse --short=7 HEAD) && \
   BASE_VERSION=$(node -p "require('./package.json').version.split('-')[0]") && \
   npm pkg set version="${BASE_VERSION}-git-${SHA7}"
 RUN npm ci --no-fund --no-audit && \
